@@ -1,0 +1,50 @@
+[
+  {
+    "id": "python1",
+    "name": "Python 1",
+    "evaluators": [
+      {
+        "id": "python1Default",
+        "name": "Default",
+        "path": "/evaluators/PyCseEvaluator1.js",
+        "capabilities": []
+      }
+    ]
+  },
+  {
+    "id": "python2",
+    "name": "Python 2",
+    "evaluators": [
+      {
+        "id": "python2Default",
+        "name": "Default",
+        "path": "/evaluators/PyCseEvaluator2.js",
+        "capabilities": []
+      }
+    ]
+  },
+  {
+    "id": "python3",
+    "name": "Python 3",
+    "evaluators": [
+      {
+        "id": "python3Default",
+        "name": "Default",
+        "path": "/evaluators/PyCseEvaluator3.js",
+        "capabilities": []
+      }
+    ]
+  },
+  {
+    "id": "python4",
+    "name": "Python 4",
+    "evaluators": [
+      {
+        "id": "python4Default",
+        "name": "Default",
+        "path": "/evaluators/PyCseEvaluator4.js",
+        "capabilities": []
+      }
+    ]
+  }
+]
