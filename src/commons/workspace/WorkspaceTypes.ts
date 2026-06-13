@@ -69,6 +69,7 @@ type PlaygroundWorkspaceAttr = {
   readonly stepsTotal: number;
   readonly breakpointSteps: number[];
   readonly changepointSteps: number[];
+  readonly cseSnapshots: any[] | null;
 };
 export type PlaygroundWorkspaceState = PlaygroundWorkspaceAttr & WorkspaceState;
 
@@ -85,6 +86,7 @@ export type EditorTabState = {
   readonly filePath?: string;
   readonly value: string;
   readonly highlightedLines: HighlightedLines[];
+  readonly highlightedLinesControl?: HighlightedLines[];
   readonly breakpoints: string[];
   readonly newCursorPosition?: Position;
 };

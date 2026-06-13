@@ -52,3 +52,6 @@ yarn-error.log
 
 # We use .node-version
 /.tool-versions
+AGENTS.md
+CLAUDE.md
+pr_description.md

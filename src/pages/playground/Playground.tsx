@@ -724,7 +724,10 @@ function Playground(props: PlaygroundProps) {
   }, [dispatch, playgroundSourceChapter, playgroundSourceVariant]);
 
   const shouldShowDataVisualizer = languageConfig.supports.dataVisualizer;
-  const shouldShowCseMachine = languageConfig.supports.cseMachine;
+  const hasCseSnapshots = useTypedSelector(
+    state => state.workspaces[workspaceLocation].cseSnapshots !== null,
+  );
+  const shouldShowCseMachine = languageConfig.supports.cseMachine || hasCseSnapshots;
   const shouldShowSubstVisualizer = languageConfig.supports.substVisualizer;
 
   const playgroundIntroductionTab: SideContentTab = useMemo(

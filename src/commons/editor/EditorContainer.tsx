@@ -29,7 +29,7 @@ export const convertEditorTabStateToProps = (
   return {
     editorTabIndex,
     editorValue: editorTab.value,
-    ...pick(editorTab, 'filePath', 'highlightedLines', 'breakpoints', 'newCursorPosition'),
+    ...pick(editorTab, 'filePath', 'highlightedLines', 'highlightedLinesControl', 'breakpoints', 'newCursorPosition'),
   };
 };
 

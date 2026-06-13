@@ -26,6 +26,7 @@ import {
   type PlaygroundWorkspaceState,
   type WorkspaceLocation,
 } from 'src/commons/workspace/WorkspaceTypes';
+import type { CseSerializedEnvFrame, CseSnapshot } from 'src/features/conductor/CseMachineHostPlugin';
 import { ClearDeadFramesAnimation } from 'src/features/cseMachine/animationComponents/ClearDeadFramesAnimation';
 import CseMachine from 'src/features/cseMachine/CseMachine';
 import { CseAnimation } from 'src/features/cseMachine/CseMachineAnimation';
@@ -76,6 +77,7 @@ type StateProps = {
   needCseUpdate: boolean;
   machineOutput: InterpreterOutput[];
   chapter: Chapter;
+  cseSnapshots: any[] | null;
 };
 
 type OwnProps = {
@@ -89,10 +91,19 @@ type DispatchProps = {
     editorTabIndex: number,
     newHighlightedLines: HighlightedLines[],
   ) => void;
+  setEditorHighlightedLinesStep: (
+    editorTabIndex: number,
+    newHighlightedLines: HighlightedLines[],
+  ) => void;
   handleAlertSideContent: () => void;
 };
 
 class SideContentCseMachineBase extends Component<CseMachineProps, State> {
+  // Accumulates every frame ever seen in the current run. Frames absent from the
+  // current snapshot (dead) are re-injected with isActive=false so computeLiveState
+  // can fade them correctly. Reset on each new run (new cseSnapshots prop value).
+  private accumulatedFrames = new Map<string, CseSerializedEnvFrame>();
+
   constructor(props: CseMachineProps) {
     super(props);
     this.state = {
@@ -115,11 +126,12 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
         },
       );
     } else {
+      const sharedSetVis = (visualization: React.ReactNode) => {
+        this.setState({ visualization }, () => CseAnimation.playAnimation());
+        if (visualization) this.props.handleAlertSideContent();
+      };
       CseMachine.init(
-        visualization => {
-          this.setState({ visualization }, () => CseAnimation.playAnimation());
-          if (visualization) this.props.handleAlertSideContent();
-        },
+        sharedSetVis,
         this.state.width,
         this.state.height,
         (segments: [number, number][]) => {
@@ -136,6 +148,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
           });
         },
       );
+      // Python snapshot mode: CseMachine.init() above already wired setVis — nothing extra needed.
     }
   }
 
@@ -199,7 +212,13 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
-    CseMachine.redraw();
+    if (this.props.cseSnapshots) {
+      // Python snapshot mode: component may mount after snapshots already arrived
+      // (the needCseUpdate true→false transition was missed), so render step 0 now.
+      this.renderSnapshotAt(0);
+    } else {
+      CseMachine.redraw();
+    }
   }
 
   componentWillUnmount() {
@@ -209,6 +228,8 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     if (!this.isJava()) {
       CseMachine.resetArrowOriginFilters();
     }
+    // Clear the blue step highlight so it doesn't linger after navigating away.
+    this.props.setEditorHighlightedLinesStep(0, []);
   }
 
   componentDidUpdate(prevProps: {
@@ -216,6 +237,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     sideContentHeight?: number;
     stepsTotal: number;
     needCseUpdate: boolean;
+    cseSnapshots?: any[] | null;
   }) {
     if (
       prevProps.sideContentHeight !== this.props.sideContentHeight ||
@@ -223,13 +245,19 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     ) {
       this.handleResize();
     }
+    if (prevProps.cseSnapshots !== this.props.cseSnapshots) {
+      this.accumulatedFrames.clear();
+    }
     if (prevProps.needCseUpdate && !this.props.needCseUpdate) {
       this.setState({ arrowFilterOpen: false });
-      this.stepFirst();
-
-      if (this.isJava()) {
+      if (this.props.cseSnapshots) {
+        // Snapshot mode: step to 0 — sliderRelease will call renderSnapshotAt(0)
+        this.stepFirst();
+      } else if (this.isJava()) {
+        this.stepFirst();
         JavaCseMachine.clearCse();
       } else {
+        this.stepFirst();
         CseMachine.clearCse();
       }
 
@@ -297,7 +325,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                     onMouseUp={() => {
                       if (this.state.visualization) {
                         CseMachine.toggleControlStash();
-                        CseMachine.redraw();
+                        if (this.props.cseSnapshots) {
+                          this.renderSnapshotAt(this.state.value);
+                        } else {
+                          CseMachine.redraw();
+                        }
                       }
                     }}
                     icon="layers"
@@ -315,7 +347,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                     onMouseUp={() => {
                       if (this.state.visualization) {
                         CseMachine.toggleStackTruncated();
-                        CseMachine.redraw();
+                        if (this.props.cseSnapshots) {
+                          this.renderSnapshotAt(this.state.value);
+                        } else {
+                          CseMachine.redraw();
+                        }
                       }
                     }}
                     icon="minimize"
@@ -334,7 +370,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                     onMouseUp={() => {
                       if (this.state.visualization) {
                         CseMachine.toggleCenterAlignment();
-                        CseMachine.redraw();
+                        if (this.props.cseSnapshots) {
+                          this.renderSnapshotAt(this.state.value);
+                        } else {
+                          CseMachine.redraw();
+                        }
                       }
                     }}
                     icon="eye-open"
@@ -393,6 +433,12 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                           label="From stash"
                           onChange={() => this.toggleArrowFilter('stash')}
                         />
+                        <Checkbox
+                          checked={CseMachine.getPairCreationMode()}
+                          disabled={!this.state.visualization}
+                          label="Pairs returned by nullary functions"
+                          onChange={() => this.togglePairCreationModeArrows()}
+                        />
                       </div>
                     }
                   >
@@ -411,7 +457,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                 disabled={isNavDisabled || isAtFirstStep}
                 icon="chevron-left"
                 onClick={
-                  this.isJava() || CseMachine.getControlStash()
+                  this.isJava() || CseMachine.getControlStash() || !!this.props.cseSnapshots
                     ? this.stepPrevious
                     : this.stepPrevChangepoint
                 }
@@ -420,7 +466,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                 disabled={isNavDisabled || isAtLastStep}
                 icon="chevron-right"
                 onClick={
-                  this.isJava() || CseMachine.getControlStash()
+                  this.isJava() || CseMachine.getControlStash() || !!this.props.cseSnapshots
                     ? this.stepNext
                     : this.stepNextChangepoint
                 }
@@ -471,7 +517,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                                 Layout.draw = originalDraw;
                               }
                             };
-                            CseMachine.redraw();
+                            if (this.props.cseSnapshots) {
+                              this.renderSnapshotAt(this.state.value);
+                            } else {
+                              CseMachine.redraw();
+                            }
                           },
                         );
                       }
@@ -485,7 +535,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                     onMouseUp={() => {
                       if (this.state.visualization) {
                         CseMachine.togglePrintableMode();
-                        CseMachine.redraw();
+                        if (this.props.cseSnapshots) {
+                          this.renderSnapshotAt(this.state.value);
+                        } else {
+                          CseMachine.redraw();
+                        }
                       }
                     }}
                     icon="print"
@@ -561,7 +615,66 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     }
   };
 
+  private renderSnapshotAt = (step: number) => {
+    const { cseSnapshots } = this.props;
+    if (!cseSnapshots) return;
+    const snapshot = cseSnapshots[step] as CseSnapshot;
+    if (!snapshot) return;
+
+    // Clear any stale hover highlight: when the user steps while hovering over a
+    // control item, the Konva canvas re-renders and onMouseLeave never fires on
+    // the old shape, leaving the green line stranded. Clear it here so only the
+    // blue step line is visible at the new step.
+    this.props.setEditorHighlightedLines(0, []);
+
+    // Rebuild accumulated frames from step 0..step on every navigation.
+    // Incremental merging breaks for double-chevron jumps (skips intermediate steps)
+    // and backward navigation (retains frames from future steps).
+    this.accumulatedFrames.clear();
+    for (let i = 0; i <= step; i++) {
+      const s = cseSnapshots[i] as CseSnapshot;
+      if (!s) continue;
+      for (const frame of s.environments) {
+        this.accumulatedFrames.set(frame.id, frame);
+      }
+    }
+
+    // Dead frames: in accumulated set but absent from this snapshot's BFS output.
+    // BFS already encodes the liveness condition: it only emits frames that are on
+    // the call stack OR reachable from a live frame via closures. So anything in
+    // accumulatedFrames but not here is dead (not in Env[] AND not closure-reachable).
+    const liveIds = new Set(snapshot.environments.map(f => f.id));
+    const deadFrames = [...this.accumulatedFrames.values()]
+      .filter(f => !liveIds.has(f.id))
+      .map(f => ({ ...f, isActive: false, isOnCallStack: false }));
+
+    // Clear stale layout caches before each snapshot render so positions from a
+    // previous step's layout don't bleed into the new one.
+    CseMachine.clearLiveLayouts();
+
+    CseMachine.renderSnapshot({ ...snapshot, environments: [...snapshot.environments, ...deadFrames] });
+
+    // Persistent step highlight (blue): update only when the top of control is a
+    // real source node with a valid 1-based line number. When it's an instruction
+    // (no metadata) or a synthetic node (startLine <= 0), do nothing — the last
+    // highlighted line stays visible until something real overwrites it. This
+    // prevents both flicker-gaps and the "line 1 stuck" symptom caused by
+    // synthetic BigIntLiteral nodes (line field = -1 → row = -2) being clamped by
+    // Ace to row 0 (line 1).
+    const topControl = snapshot.control[0];
+    const stepMeta = (topControl?.metadata as any);
+    if (stepMeta?.startLine !== undefined && stepMeta.startLine > 0) {
+      const row = (stepMeta.startLine as number) - 1; // token lines are 1-based; Ace expects 0-based
+      this.props.setEditorHighlightedLinesStep(0, [[row, row]]);
+    }
+  };
+
   private sliderRelease = (newValue: number) => {
+    if (this.props.cseSnapshots) {
+      // Snapshot mode: index into pre-computed snapshots, no re-evaluation
+      this.renderSnapshotAt(newValue);
+      return;
+    }
     if (newValue === this.props.stepsTotal) {
       this.setState({ lastStep: true });
     } else {
@@ -574,7 +687,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     if (this.state.clearDeadFrames) {
       CseMachine.setClearDeadFrames(false);
       CseMachine.clearLiveLayouts();
-      CseMachine.redraw();
+      if (!this.props.cseSnapshots) CseMachine.redraw();
     }
     this.props.handleStepUpdate(newValue);
     this.setState((state: State) => {
@@ -636,7 +749,8 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
   };
 
   private stepNextChangepoint = () => {
-    for (const step of this.props.changepointSteps) {
+    const changeSteps = this.props.changepointSteps;
+    for (const step of changeSteps) {
       if (step > this.state.value) {
         this.sliderShift(step);
         this.sliderRelease(step);
@@ -648,8 +762,9 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
   };
 
   private stepPrevChangepoint = () => {
-    for (let i = this.props.changepointSteps.length - 1; i >= 0; i--) {
-      const step = this.props.changepointSteps[i];
+    const changeSteps = this.props.changepointSteps;
+    for (let i = changeSteps.length - 1; i >= 0; i--) {
+      const step = changeSteps[i];
       if (step < this.state.value) {
         this.sliderShift(step);
         this.sliderRelease(step);
@@ -666,6 +781,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     this.refreshArrowFilters();
   };
 
+  private togglePairCreationModeArrows = () => {
+    CseMachine.togglePairCreationMode();
+    this.refreshArrowFilters();
+  };
+
   private setAllArrowFilters = (visible: boolean) => {
     CseMachine.setAllArrowOriginsVisible(visible);
     this.refreshArrowFilters();
@@ -673,7 +793,11 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
 
   private refreshArrowFilters = () => {
     CseMachine.clearRenderedLayouts();
-    CseMachine.redraw();
+    if (this.props.cseSnapshots) {
+      this.renderSnapshotAt(this.state.value);
+    } else {
+      CseMachine.redraw();
+    }
     this.forceUpdate();
   };
 }
@@ -705,6 +829,7 @@ const mapStateToProps: MapStateToProps<StateProps, OwnProps, OverallState> = (
     needCseUpdate: workspace.updateCse,
     machineOutput: workspace.output,
     chapter: workspace.context.chapter,
+    cseSnapshots: workspace.cseSnapshots,
   };
 };
 
@@ -721,6 +846,15 @@ const mapDispatchToProps: MapDispatchToProps<DispatchProps, OwnProps> = (dispatc
         newHighlightedLines: HighlightedLines[],
       ) =>
         WorkspaceActions.setEditorHighlightedLinesControl(
+          props.workspaceLocation,
+          editorTabIndex,
+          newHighlightedLines,
+        ),
+      setEditorHighlightedLinesStep: (
+        editorTabIndex: number,
+        newHighlightedLines: HighlightedLines[],
+      ) =>
+        WorkspaceActions.setEditorHighlightedLines(
           props.workspaceLocation,
           editorTabIndex,
           newHighlightedLines,

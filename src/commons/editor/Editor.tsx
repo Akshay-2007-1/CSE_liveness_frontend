@@ -22,7 +22,7 @@ import { Card } from '@blueprintjs/core';
 import * as AceBuilds from 'ace-builds';
 import { Ace, require as acequire, createEditSession } from 'ace-builds';
 import { Chapter, Variant } from 'js-slang/dist/langs';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { IAceEditorProps, IEditorProps } from 'react-ace';
 import AceEditor from 'react-ace';
 import type { IAceEditor } from 'react-ace/lib/types';
@@ -86,6 +86,7 @@ export type EditorTabStateProps = {
   filePath?: string;
   editorValue: string;
   highlightedLines: HighlightedLines[];
+  highlightedLinesControl?: HighlightedLines[];
   breakpoints: string[];
   newCursorPosition?: Position;
 };
@@ -126,18 +127,6 @@ const EventT: Array<keyof OnEvent> = [
   'onScroll',
 ];
 
-const getMarkers = (
-  highlightedLines: EditorTabStateProps['highlightedLines'],
-): IAceEditorProps['markers'] => {
-  return highlightedLines.map(lineNums => ({
-    startRow: lineNums[0],
-    startCol: 0,
-    endRow: lineNums[1],
-    endCol: 1,
-    className: 'myMarker',
-    type: 'fullLine',
-  }));
-};
 
 const makeHandleGutterClick =
   (
@@ -390,6 +379,55 @@ const EditorBase = memo((props: EditorProps & LocalStateProps) => {
     displayBreakpoints(editor, props.breakpoints);
   }, [editor, props.breakpoints]);
 
+  // Manage line-highlight markers directly via the Ace session API so that
+  // exactly ONE highlight is visible at any time. react-ace's `markers` prop
+  // uses isEqual-based diffing that can leave stale fullLine divs in the DOM
+  // when markers are updated in quick succession. Tracking marker IDs manually
+  // guarantees the old div is removed before the new one is added.
+  const stepMarkerIdRef = useRef<number | null>(null);
+  const controlMarkerIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (editor === undefined) return;
+    const session = editor.getSession();
+    const Range: new (startRow: number, startColumn: number, endRow: number, endColumn: number) => Ace.Range =
+      acequire('ace/range').Range;
+
+    // Determine which channel is active: hover (green) takes priority.
+    const controlLines = props.highlightedLinesControl ?? [];
+    const stepLines = props.highlightedLines;
+
+    // Remove old step marker unconditionally.
+    if (stepMarkerIdRef.current !== null) {
+      session.removeMarker(stepMarkerIdRef.current);
+      stepMarkerIdRef.current = null;
+    }
+    // Remove old control (hover) marker unconditionally.
+    if (controlMarkerIdRef.current !== null) {
+      session.removeMarker(controlMarkerIdRef.current);
+      controlMarkerIdRef.current = null;
+    }
+
+    if (controlLines.length > 0) {
+      // Hover highlight (green) — overrides step highlight.
+      const [startRow, endRow] = controlLines[0];
+      controlMarkerIdRef.current = session.addMarker(
+        new Range(startRow, 0, endRow, 1),
+        'ace_line_hi_control',
+        'fullLine',
+        false,
+      );
+    } else if (stepLines.length > 0) {
+      // Step highlight (blue).
+      const [startRow, endRow] = stepLines[0];
+      stepMarkerIdRef.current = session.addMarker(
+        new Range(startRow, 0, endRow, 1),
+        'ace_line_hi',
+        'fullLine',
+        false,
+      );
+    }
+  }, [editor, props.highlightedLines, props.highlightedLinesControl]);
+
   // Handles input into AceEditor causing app to scroll to the top on iOS Safari
   useEffect(() => {
     const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -536,7 +574,6 @@ const EditorBase = memo((props: EditorProps & LocalStateProps) => {
     editorProps: {
       $blockScrolling: Infinity,
     },
-    markers: useMemo(() => getMarkers(props.highlightedLines), [props.highlightedLines]),
     fontSize: 17,
     height: '100%',
     highlightActiveLine: false,
