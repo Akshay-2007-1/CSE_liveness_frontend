@@ -12,6 +12,10 @@ import { require as acequire } from 'ace-builds/src-noconflict/ace';
 import { EventChannel, eventChannel, Unsubscribe } from 'redux-saga';
 
 export default class AutoCompletePlugin extends BaseAutoCompleteWebPlugin {
+  // Explicitly re-declare so bundlers that don't propagate static fields across
+  // package boundaries still see channelAttach on the concrete class.
+  static override readonly channelAttach = BaseAutoCompleteWebPlugin.channelAttach;
+
   private currentMode: string | null = null;
 
   public getMode(): string | null {
@@ -75,6 +79,12 @@ export default class AutoCompletePlugin extends BaseAutoCompleteWebPlugin {
     this.currentMode = data.id;
   }
 
+  // Required by the abstract base class. Actual completions go through the
+  // conductor channel — see complete() below.
+  autocomplete(_code: string, _row: number, _column: number): AutoCompleteEntry[] {
+    return [];
+  }
+
   setMode(editor: Editor) {
     const session = editor.getSession();
     const ModeConstructor = acequire(this.currentMode || 'ace/mode/text').Mode;
@@ -83,10 +93,21 @@ export default class AutoCompletePlugin extends BaseAutoCompleteWebPlugin {
 
   complete(code: string, row: number, column: number): EventChannel<AutoCompleteEntry[]> {
     return eventChannel<AutoCompleteEntry[]>((emit): Unsubscribe => {
-      this.autocomplete(code, row, column, entries => {
-        emit(entries.declarations);
-      });
-      return () => {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ch = (this as any).__autoCompleteChannel;
+
+      const handler = (msg: { type: string; declarations: AutoCompleteEntry[] }) => {
+        if (msg.type === 'response') {
+          ch.unsubscribe(handler);
+          emit(msg.declarations);
+        }
+      };
+      ch.subscribe(handler);
+      ch.send({ type: 'request', code, row, column });
+
+      return () => {
+        ch.unsubscribe(handler);
+      };
     });
   }
 }
