@@ -241,6 +241,26 @@ export class GenericArrow<Source extends IVisible, Target extends IVisible>
   onClick = (e: KonvaEventObject<MouseEvent>) => {
     e.cancelBubble = true;
 
+    // Debug: print arrow source/target info to console
+    const src = this.source as any;
+    const tgt = this.target as any;
+    console.log('[Arrow] source:', {
+      type: src?.constructor?.name,
+      x: src?.x?.(),
+      y: src?.y?.(),
+      data: src?.data,
+      environment: src?.data?.environment,
+      functionName: src?.data?.functionName,
+    });
+    console.log('[Arrow] target:', {
+      type: tgt?.constructor?.name,
+      x: tgt?.x?.(),
+      y: tgt?.y?.(),
+      data: tgt?.data,
+      environment: tgt?.data?.environment,
+      functionName: tgt?.data?.functionName,
+    });
+
     // Toggle selection - clear first, then select if it wasn't already selected
     const wasSelected = this.isSelected();
     const oldArrow = arrowSelection.clearSelection();

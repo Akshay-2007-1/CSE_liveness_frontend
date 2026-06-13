@@ -89,7 +89,8 @@ export const handleEditorActions = (builder: ActionReducerMapBuilder<WorkspaceMa
         throw new Error('Editor tab index must have a corresponding editor tab!');
       }
 
-      state[workspaceLocation].editorTabs[editorTabIndex].highlightedLines = newHighlightedLines;
+      state[workspaceLocation].editorTabs[editorTabIndex].highlightedLinesControl =
+        newHighlightedLines;
     })
     .addCase(WorkspaceActions.moveCursor, (state, action) => {
       const workspaceLocation = getWorkspaceLocation(action);
@@ -121,6 +122,7 @@ export const handleEditorActions = (builder: ActionReducerMapBuilder<WorkspaceMa
         filePath,
         value: editorValue,
         highlightedLines: [],
+        highlightedLinesControl: [],
         breakpoints: [],
       };
       editorTabs.push(newEditorTab);

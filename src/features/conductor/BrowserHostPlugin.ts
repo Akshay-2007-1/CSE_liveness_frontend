@@ -31,6 +31,12 @@ export class BrowserHostPlugin extends BasicHostPlugin {
     const resultChannel = channels.find(
       (channel): channel is IChannel<IResultMessage> => channel.name === '__result',
     );
-    resultChannel?.subscribe(resultMessage => this.receiveResult?.(resultMessage.result));
+    resultChannel?.subscribe(resultMessage => {
+      // Guard: evaluators like PyCseEvaluator return void (undefined), which would
+      // cause redux-saga's eventChannel to throw "undefined action".
+      if (resultMessage.result !== undefined) {
+        this.receiveResult?.(resultMessage.result);
+      }
+    });
   }
 }

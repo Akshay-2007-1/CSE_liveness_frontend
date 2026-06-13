@@ -9,7 +9,7 @@ import { ErrorSeverity, ErrorType, type SourceError } from 'js-slang/dist/errors
 import { InterruptedError } from 'js-slang/dist/errors/errors';
 import { Chapter, Variant } from 'js-slang/dist/langs';
 import { pick } from 'lodash-es';
-import { eventChannel, type SagaIterator } from 'redux-saga';
+import { END, eventChannel, type SagaIterator } from 'redux-saga';
 import { call, cancel, cancelled, fork, put, race, select, take } from 'redux-saga/effects';
 import * as Sourceror from 'sourceror';
 
@@ -18,6 +18,7 @@ import { makeCCompilerConfig, specialCReturnObject } from '../../../../commons/u
 import { javaRun } from '../../../../commons/utils/JavaHelper';
 import { EventType } from '../../../../features/achievement/AchievementTypes';
 import type { BrowserHostPlugin } from '../../../../features/conductor/BrowserHostPlugin';
+import type { CseMachineHostPlugin, CseSnapshot } from '../../../../features/conductor/CseMachineHostPlugin';
 import { selectConductorEnable } from '../../../../features/conductor/flagConductorEnable';
 import LanguageDirectoryActions from '../../../../features/directory/LanguageDirectoryActions';
 import { type OverallState } from '../../../application/ApplicationTypes';
@@ -487,6 +488,33 @@ function* handleErrors(
   }
 }
 
+function* handleCseSnapshots(
+  csePlugin: CseMachineHostPlugin,
+  workspaceLocation: WorkspaceLocation,
+): SagaIterator {
+  const snapshotChan = eventChannel<CseSnapshot[]>(emitter => {
+    csePlugin.receiveSnapshots = emitter;
+    return () => {
+      if (csePlugin.receiveSnapshots === emitter) delete csePlugin.receiveSnapshots;
+    };
+  });
+  try {
+    while (true) {
+      const snapshots: CseSnapshot[] | typeof END = yield take(snapshotChan);
+      // Guard against channel END sentinel or non-array values
+      if (snapshots === END || !Array.isArray(snapshots)) break;
+      yield put(WorkspaceActions.updateCseSnapshots(snapshots, workspaceLocation));
+      yield put(WorkspaceActions.updateStepsTotal(snapshots.length - 1, workspaceLocation));
+      // Transition updateCse true→false so SideContentCseMachine.componentDidUpdate renders step 0
+      yield put(WorkspaceActions.toggleUpdateCse(false, workspaceLocation as any));
+    }
+  } catch (_e) {
+    // Swallow errors from this non-critical background task
+  } finally {
+    snapshotChan.close();
+  }
+}
+
 function* handleStatuses(
   hostPlugin: BrowserHostPlugin,
   workspaceLocation: WorkspaceLocation,
@@ -545,8 +573,11 @@ export function* evalCodeConductorSaga(
     if (!evaluator?.path) throw Error('no evaluator');
   }
 
+  // Clear any stale CSE snapshots from the previous run
+  yield put(WorkspaceActions.updateCseSnapshots(null, workspaceLocation));
+
   // Reuse a preloaded conductor instance when available.
-  const { hostPlugin, conduit }: { hostPlugin: BrowserHostPlugin; conduit: IConduit } = yield call(
+  const { hostPlugin, csePlugin, conduit }: { hostPlugin: BrowserHostPlugin; csePlugin: CseMachineHostPlugin; conduit: IConduit } = yield call(
     getPreparedConductorSaga,
     { files, consume: true },
   );
@@ -556,6 +587,7 @@ export function* evalCodeConductorSaga(
   const resultTask = yield fork(handleResults, hostPlugin, workspaceLocation);
   const errorTask = yield fork(handleErrors, hostPlugin, workspaceLocation);
   const statusTask = yield fork(handleStatuses, hostPlugin, workspaceLocation);
+  const cseTask = yield fork(handleCseSnapshots, csePlugin, workspaceLocation);
   yield call([hostPlugin, 'startEvaluator'], entrypointFilePath);
 
   // This exit logic of this while loop might be causing an unintended infinite loop in the REPL
@@ -573,6 +605,7 @@ export function* evalCodeConductorSaga(
     yield call([hostPlugin, 'sendChunk'], code);
   }
   yield cancel(statusTask);
+  yield cancel(cseTask);
   yield call([conduit, 'terminate']);
   yield cancel(stdoutTask);
   yield cancel(resultTask);

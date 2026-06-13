@@ -110,6 +110,8 @@ export class Layout {
   static liveObjectIDs: Set<string> = new Set();
   /** hide non-live frames temporarily for the current step */
   static clearDeadFrames: boolean = false;
+  /** when true, skip Source-specific env mutations (removePreludeEnv, removeUnreferencedGlobalFns) */
+  static snapshotMode: boolean = false;
 
   /**
    * memoized values, where keys are either ids for arrays and closures,
@@ -206,6 +208,7 @@ export class Layout {
     Layout.currentStackTruncDark = undefined;
     Layout.currentStackLight = undefined;
     Layout.currentStackTruncLight = undefined;
+
     // clear/initialize data and value arrays
     Layout.values.clear();
     arrowSelection.clearSelection();
@@ -213,8 +216,8 @@ export class Layout {
     Layout.resetUnderlayArrows();
     Layout.resetOverlayNodes();
 
-    // deep copy so we don't mutate the context
-    Layout.globalEnvNode = deepCopyTree(envTree).root;
+    // deep copy so we don't mutate the context (skip in snapshot mode — tree is already isolated)
+    Layout.globalEnvNode = Layout.snapshotMode ? (envTree as any).root : deepCopyTree(envTree).root;
     Layout.control = control;
     Layout.stash = stash;
 
@@ -277,6 +280,7 @@ export class Layout {
    * objects into the global environment head and heap
    */
   private static removePreludeEnv() {
+    if (Layout.snapshotMode) return;
     if (!Layout.globalEnvNode.children || Layout.globalEnvNode.children.length === 0) return;
 
     const preludeEnvNode = Layout.globalEnvNode.children[0];
@@ -316,6 +320,7 @@ export class Layout {
 
   /** remove any global functions not referenced elsewhere in the program */
   private static removeUnreferencedGlobalFns(): void {
+    if (Layout.snapshotMode) return;
     const referencedFns = new Set<GlobalFn | NonGlobalFn>();
     const visitedData = new Set<DataArray>();
 
@@ -789,6 +794,7 @@ export class Layout {
           </div>
         </div>
       );
+
       Layout.prevLayout = layout;
       if (CseMachine.getPrintableMode()) {
         if (CseMachine.getControlStash()) {
