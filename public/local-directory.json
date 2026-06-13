@@ -4,7 +4,7 @@
     "name": "Python 1",
     "evaluators": [
       {
-        "id": "python1Default",
+        "id": "PyCseEvaluator1",
         "name": "Default",
         "path": "/evaluators/PyCseEvaluator1.js",
         "capabilities": []
@@ -16,7 +16,7 @@
     "name": "Python 2",
     "evaluators": [
       {
-        "id": "python2Default",
+        "id": "PyCseEvaluator2",
         "name": "Default",
         "path": "/evaluators/PyCseEvaluator2.js",
         "capabilities": []
@@ -28,7 +28,7 @@
     "name": "Python 3",
     "evaluators": [
       {
-        "id": "python3Default",
+        "id": "PyCseEvaluator3",
         "name": "Default",
         "path": "/evaluators/PyCseEvaluator3.js",
         "capabilities": []
@@ -40,7 +40,7 @@
     "name": "Python 4",
     "evaluators": [
       {
-        "id": "python4Default",
+        "id": "PyCseEvaluator4",
         "name": "Default",
         "path": "/evaluators/PyCseEvaluator4.js",
         "capabilities": []
