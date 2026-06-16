@@ -160,18 +160,22 @@ const WorkspaceSaga = combineSagaHandlers({
     }
 
     if (yield select(selectConductorEnable)) {
-      const { conduit }: { hostPlugin: BrowserHostPlugin; conduit: IConduit } =
-        yield call(getPreparedConductorSaga);
+      let conductorPlugin: AutoCompletePlugin | undefined;
+      try {
+        const { conduit }: { hostPlugin: BrowserHostPlugin; conduit: IConduit } =
+          yield call(getPreparedConductorSaga);
+        conductorPlugin = conduit.lookupPlugin('__autocomplete_plugin_web') as AutoCompletePlugin;
+      } catch (_e) {
+        // Fall through to non-conductor autocomplete below
+      }
 
-      const plugin = conduit.lookupPlugin('__autocomplete_plugin_web') as AutoCompletePlugin;
-      if (plugin) {
+      if (conductorPlugin) {
         const channel: EventChannel<AutoCompleteEntry[]> = yield call(
-          [plugin, 'complete'],
+          [conductorPlugin, 'complete'],
           autocompleteCode,
           action.payload.row + prependLength,
           action.payload.column,
         );
-        //const names: AutoCompleteEntry[] = yield take(channel);
         const { names, timeout }: { names?: AutoCompleteEntry[]; timeout?: true } = yield race({
           names: take(channel),
           timeout: delay(3000),
@@ -196,10 +200,8 @@ const WorkspaceSaga = combineSagaHandlers({
           })),
         );
         channel.close();
-      } else {
-        yield call(action.payload.callback, null, []);
+        return;
       }
-      return;
     }
 
     const [editorNames, displaySuggestions]: Awaited<ReturnType<typeof getNames>> = yield call(
@@ -314,13 +316,16 @@ const WorkspaceSaga = combineSagaHandlers({
   [WorkspaceActions.setEditorHighlightedLines.type]: function* ({
     payload: { newHighlightedLines },
   }) {
-    if (newHighlightedLines.length === 0) {
-      yield call(highlightClean);
-    } else {
+    // ALWAYS clean first. window.Inspector.highlightLine only adds the ace_line_hi
+    // DOM class; it never removes prior ones. Cleaning only on an empty dispatch
+    // made highlights accumulate (e.g. line 1 from step 0 stuck forever). Clean
+    // unconditionally, then re-apply the current lines.
+    yield call(highlightClean);
+    if (newHighlightedLines.length > 0) {
       try {
         for (const [startRow, endRow] of newHighlightedLines) {
           for (let row = startRow; row <= endRow; row++) {
-            yield call(highlightLine, row);
+            if (row >= 0) yield call(highlightLine, row);
           }
         }
       } catch (e) {
@@ -332,13 +337,12 @@ const WorkspaceSaga = combineSagaHandlers({
   [WorkspaceActions.setEditorHighlightedLinesControl.type]: function* ({
     payload: { newHighlightedLines },
   }) {
-    if (newHighlightedLines.length === 0) {
-      yield call(highlightCleanForControl);
-    } else {
+    yield call(highlightCleanForControl);
+    if (newHighlightedLines.length > 0) {
       try {
         for (const [startRow, endRow] of newHighlightedLines) {
           for (let row = startRow; row <= endRow; row++) {
-            yield call(highlightLineForControl, row);
+            if (row >= 0) yield call(highlightLineForControl, row);
           }
         }
       } catch (e) {

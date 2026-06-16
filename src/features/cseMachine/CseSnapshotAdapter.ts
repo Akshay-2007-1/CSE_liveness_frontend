@@ -42,7 +42,7 @@ function toJsValue(
   v: CseSerializedValue,
   envMap: Map<string, Environment>,
   closureCache: Map<string, unknown>,
-  listCache: Map<number, unknown>,
+  listCache: Map<string | number, unknown>,
 ): unknown {
   const label = v.label.toLowerCase();
 
@@ -58,6 +58,41 @@ function toJsValue(
   }
   if (label === 'nonetype' || label === 'none' || label === 'null') {
     return null;
+  }
+  if (label === 'undefined') {
+    return undefined;
+  }
+  if (label === 'unassigned') {
+    // Reconstruct the js-slang uninitialized-const sentinel so Frame.tsx
+    // detects it via isUnassigned() and renders the binding as empty (no value shown).
+    return Symbol('const declaration');
+  }
+
+  if (label === 'array') {
+    const meta = v.metadata as any;
+    const arrayId: string | undefined = meta?.id;
+    const envId: string | null = meta?.envId ?? null;
+    const elements: CseSerializedValue[] = meta?.elements ?? [];
+
+    if (arrayId && listCache.has(arrayId)) return listCache.get(arrayId);
+
+    // Build a real JS array with own `id` and `environment` so isDataArray() passes.
+    const arr: any = elements.map((el: CseSerializedValue) =>
+      toJsValue(el, envMap, closureCache, listCache),
+    );
+    Object.defineProperties(arr, {
+      id:          { value: arrayId ?? `arr_${Math.random()}`, writable: true },
+      environment: { value: envId ? (envMap.get(envId) ?? null) : null, writable: true },
+    });
+
+    if (arrayId) listCache.set(arrayId, arr);
+
+    // Register with the defining env's heap so the CSE visualizer draws the array box.
+    if ((arr as any).environment) {
+      (arr as any).environment.heap.add(arr);
+    }
+
+    return arr;
   }
 
   if (label === 'list') {
@@ -79,7 +114,7 @@ function toJsValue(
     return arr;
   }
 
-  if (/closure|function|lambda|method/.test(label)) {
+  if (/closure|function|lambda|method/.test(label) && (v.metadata as any)?.closureFrameId) {
     const meta = v.metadata as any;
     const closureEnvId: string = meta?.closureFrameId ?? '';
     const params: string[] = meta?.params ?? [];
@@ -162,7 +197,7 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
   // One cache per snapshot render: same logical Python closure/list → same JS object,
   // so Layout.values memoization (keyed by object identity) produces one canvas box.
   const closureCache = new Map<string, unknown>();
-  const listCache = new Map<number, unknown>();
+  const listCache = new Map<string | number, unknown>();
 
   // ── Pass 1: create bare Environment objects ─────────────────────────────
   const envMap = new Map<string, Environment>();
@@ -192,11 +227,18 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
 
   // ── Pass 3a: populate non-closure values ────────────────────────────────
   // Done first so the envMap is complete when closures look up their environments.
+  // Use Object.defineProperty to preserve const (writable:false) vs let (writable:true)
+  // so Frame.tsx renders := vs : correctly.
   for (const f of frames) {
     const env = envMap.get(f.id)!;
     for (const b of f.bindings) {
       if (!/closure|function|lambda|method/i.test(b.value.label)) {
-        (env.head as any)[b.name] = toJsValue(b.value, envMap, closureCache, listCache);
+        Object.defineProperty(env.head, b.name, {
+          value: toJsValue(b.value, envMap, closureCache, listCache),
+          writable: !b.isConst,
+          enumerable: true,
+          configurable: true,
+        });
       }
     }
   }
@@ -205,9 +247,14 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
   for (const f of frames) {
     const env = envMap.get(f.id)!;
     for (const b of f.bindings) {
-      if (/closure|function|lambda|method/i.test(b.value.label)) {
+      if (/closure|function|lambda|method/i.test(b.value.label) && (b.value.metadata as any)?.closureFrameId) {
         const val = toJsValue(b.value, envMap, closureCache, listCache);
-        (env.head as any)[b.name] = val;
+        Object.defineProperty(env.head, b.name, {
+          value: val,
+          writable: !b.isConst,
+          enumerable: true,
+          configurable: true,
+        });
         // If this closure was defined in a different frame than where it is bound
         // (e.g. a lambda returned from a function), add it to the defining frame's heap.
         // Source CSE Machine's getUnreferencedObjects() will then create a dummy binding
@@ -218,6 +265,20 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
           definingEnv.heap.add(val);
         }
       }
+    }
+  }
+
+  // ── Pass 3c: populate anonymous heap objects ─────────────────────────────
+  // Closures serialized in heapObjects are NOT bound to any name — they were placed
+  // directly in the frame's heap by the Closure constructor (e.g. a lambda returned
+  // from a function before assignment).  Adding them to env.heap lets
+  // getUnreferencedObjects() find them and render the dangling-arrow visualization
+  // that appears in dead frames for short-lived closures.
+  for (const f of frames) {
+    const env = envMap.get(f.id)!;
+    for (const sv of f.heapObjects ?? []) {
+      const val = toJsValue(sv, envMap, closureCache, listCache);
+      if (val != null) env.heap.add(val as any);
     }
   }
 
@@ -247,26 +308,73 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
 
   // ── Build fake Control (top-first in snapshot → reverse for stack order) ─
   const controlItems = [...snapshot.control].reverse().map(instr => {
+    const meta = instr.metadata as any;
+
     // ENVIRONMENT instructions: build a fake EnvInstr so the renderer draws an
     // arrow from the control item to the frame it will restore.
-    // py-slang serializes these with metadata.envId; js-slang InstrType is "Environment".
-    const meta = instr.metadata as any;
+    // py-slang uses metadata.envId; js-slang sends displayText='ENVIRONMENT' + envId.
     if (instr.displayText.toLowerCase() === 'environment' && meta?.envId) {
       const targetEnv = envMap.get(meta.envId as string);
-      // Only emit ENV item if the target frame was actually serialized. If it's missing
-      // (shouldn't happen with correct py-slang serialization) fall through to plain text.
       if (targetEnv) {
-        // srcNode stub prevents ControlStack from crashing when it tries node.loc
-        // on an instruction whose srcNode would otherwise be undefined.
         return { instrType: InstrType.ENVIRONMENT, env: targetEnv, srcNode: { loc: undefined } };
       }
     }
-    // All other items: fake Identifier node — isNode() returns true and
-    // getControlItemComponent falls through to the default astToString case.
-    // Attach loc if the runner sent line info so ControlStack can highlight source.
+
     const loc = meta?.startLine !== undefined
-      ? { start: { line: meta.startLine }, end: { line: meta.endLine ?? meta.startLine } }
+      ? { start: { line: meta.startLine as number }, end: { line: (meta.endLine ?? meta.startLine) as number } }
       : undefined;
+
+    // ── Animation-aware reconstruction (js-slang conductor mode) ─────────────
+    // When js-slang serializes control items it embeds instrType / nodeType in
+    // metadata so the animation system can dispatch on the real type instead of
+    // treating everything as a generic Identifier.
+
+    if (meta?.instrType !== undefined) {
+      // Reconstruct a duck-typed instruction object for the animation system.
+      // Note: no `type` field — isInstr() detects these via instrType, and
+      // getControlItemComponent dispatches on instrType for display (reads
+      // symbol / numOfArgs / arity which we forward here).
+      return {
+        instrType: meta.instrType as InstrType,
+        symbol: meta.symbol as string | undefined,
+        numOfArgs: meta.numOfArgs as number | undefined,
+        arity: meta.arity as number | undefined,
+        srcNode: { loc },
+      };
+    }
+
+    if (meta?.nodeType) {
+      // Keep type:'Identifier' so getControlItemComponent uses astToString(node)
+      // which returns node.name — i.e. the display text we want.  Store the real
+      // AST type in __snapAnimType so CseMachineAnimation.handleNode can dispatch
+      // correctly for animations without breaking the control-stack display.
+      const nodeType = meta.nodeType as string;
+      const bodyLength: number = (meta.bodyLength as number | undefined) ?? 0;
+      const bodyNodeTypes: (string | undefined)[] = (meta.bodyNodeTypes as (string | undefined)[] | undefined) ?? [];
+
+      // Build a body array for block-like nodes so handleNode can check body.length.
+      // Stub elements' types drive the recursive handleNode call when body.length === 1.
+      // ExpressionStatement delegates to .expression, so give it a BinaryExpression
+      // stub that lands in the ControlExpansionAnimation case.
+      const body = Array.from({ length: bodyLength }, (_, i) => {
+        const t = bodyNodeTypes[i] ?? 'VariableDeclaration';
+        if (t === 'ExpressionStatement') return { type: t, expression: { type: 'BinaryExpression' } };
+        return { type: t };
+      });
+
+      return {
+        type: 'Identifier' as const,
+        name: instr.displayText,
+        loc,
+        __snapAnimType: nodeType,
+        __snapBody: body,
+      } as any;
+    }
+
+    // ── Fallback (py-slang or untyped items) ──────────────────────────────────
+    // isNode() accepts any object with a .type field; the animation system will
+    // treat this as a generic identifier lookup (and the try/catch in Layout
+    // absorbs any animation failure without breaking the visualisation).
     return { type: 'Identifier' as const, name: instr.displayText, loc };
   });
 
@@ -276,7 +384,28 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
   const fakeControl = makeFakeStack(controlItems) as unknown as Control;
 
   // ── Build fake Stash ─────────────────────────────────────────────────────
-  const stashItems = snapshot.stash.map(sv => toJsValue(sv, envMap, closureCache, listCache));
+  // The evaluator serializes stash newest-first (rawStash.slice().reverse()), so we must
+  // reverse back to oldest-first order to match the real Stash.getStack() convention
+  // (index 0 = bottom/oldest, last index = top/newest).  Without this reversal the stash
+  // displays backwards and the animation system picks the wrong item as the "closure".
+  const stashSv = [...snapshot.stash].reverse();
+  const stashItems = stashSv.map(sv => toJsValue(sv, envMap, closureCache, listCache));
+
+  // Stash closures not yet assigned to a name still need to appear in their defining env's heap
+  // so getUnreferencedObjects() can render them as an unbound arrow in the program frame —
+  // matching the non-conductor CSE machine's behaviour at the step before `assign foo` runs.
+  for (let i = 0; i < stashSv.length; i++) {
+    const sv = stashSv[i];
+    const label = sv.label.toLowerCase();
+    if (/closure|function|lambda|method/.test(label) && (sv.metadata as any)?.closureFrameId) {
+      const val = stashItems[i];
+      const definingEnv = (val as any)?.environment;
+      if (definingEnv) {
+        definingEnv.heap.add(val);
+      }
+    }
+  }
+
   const fakeStash = makeFakeStack(stashItems) as unknown as Stash;
 
   return { envTree, fakeControl, fakeStash };

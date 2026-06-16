@@ -1,5 +1,33 @@
 [
   {
+    "id": "source-1",
+    "name": "Source 1",
+    "evaluators": [
+      { "id": "default", "name": "Default", "path": "/evaluators/SourceEvaluator1.js", "capabilities": [] }
+    ]
+  },
+  {
+    "id": "source-2",
+    "name": "Source 2",
+    "evaluators": [
+      { "id": "default", "name": "Default", "path": "/evaluators/SourceEvaluator1.js", "capabilities": [] }
+    ]
+  },
+  {
+    "id": "source-3",
+    "name": "Source 3",
+    "evaluators": [
+      { "id": "default", "name": "Default", "path": "/evaluators/JSCseEvaluator3.js", "capabilities": [] }
+    ]
+  },
+  {
+    "id": "source-4",
+    "name": "Source 4",
+    "evaluators": [
+      { "id": "default", "name": "Default", "path": "/evaluators/JSCseEvaluator4.js", "capabilities": [] }
+    ]
+  },
+  {
     "id": "python1",
     "name": "Python 1",
     "evaluators": [

@@ -457,7 +457,10 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                 disabled={isNavDisabled || isAtFirstStep}
                 icon="chevron-left"
                 onClick={
-                  this.isJava() || CseMachine.getControlStash() || !!this.props.cseSnapshots
+                  // When control/stash are hidden, skip steps where only they change
+                  // (no visible environment change). Works in conductor (snapshot) and
+                  // non-conductor modes. Java always steps one-by-one.
+                  this.isJava() || CseMachine.getControlStash()
                     ? this.stepPrevious
                     : this.stepPrevChangepoint
                 }
@@ -466,7 +469,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
                 disabled={isNavDisabled || isAtLastStep}
                 icon="chevron-right"
                 onClick={
-                  this.isJava() || CseMachine.getControlStash() || !!this.props.cseSnapshots
+                  this.isJava() || CseMachine.getControlStash()
                     ? this.stepNext
                     : this.stepNextChangepoint
                 }
@@ -654,17 +657,21 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
 
     CseMachine.renderSnapshot({ ...snapshot, environments: [...snapshot.environments, ...deadFrames] });
 
-    // Persistent step highlight (blue): update only when the top of control is a
-    // real source node with a valid 1-based line number. When it's an instruction
-    // (no metadata) or a synthetic node (startLine <= 0), do nothing — the last
-    // highlighted line stays visible until something real overwrites it. This
-    // prevents both flicker-gaps and the "line 1 stuck" symptom caused by
-    // synthetic BigIntLiteral nodes (line field = -1 → row = -2) being clamped by
-    // Ace to row 0 (line 1).
-    const topControl = snapshot.control[0];
-    const stepMeta = (topControl?.metadata as any);
-    if (stepMeta?.startLine !== undefined && stepMeta.startLine > 0) {
-      const row = (stepMeta.startLine as number) - 1; // token lines are 1-based; Ace expects 0-based
+    // Blue "current line" highlight. Mirrors the non-conductor CSE machine's
+    // updateInspector: it highlights the line of the node most recently evaluated
+    // (context.runtime.nodes[0]), NOT the top of the control stack. The control top
+    // is frequently an instruction (BinaryOperation, Pop, ...) with no source line,
+    // which made the old control-based logic jump around / stick. snapshot.currentLine
+    // is the 1-based line of that current node (or undefined when there is none).
+    // Always clear-then-set so the highlight tracks every step exactly like
+    // non-conductor mode (row = -1 simply highlights nothing).
+    // Clear-then-set. The leading empty dispatch triggers the inspector's highlightClean
+    // (removing the previous step's line highlight so it doesn't accumulate — this is why
+    // line 1 from step 0 used to stay stuck), then we set the current line. Mirrors the
+    // non-conductor updateInspector.
+    this.props.setEditorHighlightedLinesStep(0, []);
+    if (snapshot.currentLine !== undefined && snapshot.currentLine > 0) {
+      const row = snapshot.currentLine - 1; // lines are 1-based; Ace expects 0-based rows
       this.props.setEditorHighlightedLinesStep(0, [[row, row]]);
     }
   };
@@ -705,9 +712,9 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
   private stepNext = () => {
     const lastStepValue = this.props.stepsTotal;
     if (this.state.value !== lastStepValue) {
+      CseAnimation.enableAnimations();
       this.sliderShift(this.state.value + 1);
       this.sliderRelease(this.state.value + 1);
-      CseAnimation.enableAnimations();
     }
   };
 
@@ -748,8 +755,33 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     this.sliderRelease(0);
   };
 
+  // A compact signature of just the environment frames in a snapshot. Used to skip
+  // steps where only the control/stash change (no visible environment change) when
+  // the control/stash display is hidden.
+  private envFingerprint = (snap: CseSnapshot): string => {
+    return JSON.stringify(snap?.environments ?? []);
+  };
+
+  // Steps at which the environment changes relative to the previous step. In conductor
+  // (snapshot) mode this is derived from the snapshots; otherwise it falls back to the
+  // interpreter-provided changepointSteps (non-conductor CSE machine).
+  private getChangepointSteps = (): number[] => {
+    const snaps = this.props.cseSnapshots as CseSnapshot[] | null;
+    if (snaps) {
+      const steps: number[] = [];
+      let prevFp: string | null = null;
+      for (let i = 0; i < snaps.length; i++) {
+        const fp = this.envFingerprint(snaps[i]);
+        if (prevFp === null || fp !== prevFp) steps.push(i);
+        prevFp = fp;
+      }
+      return steps;
+    }
+    return this.props.changepointSteps;
+  };
+
   private stepNextChangepoint = () => {
-    const changeSteps = this.props.changepointSteps;
+    const changeSteps = this.getChangepointSteps();
     for (const step of changeSteps) {
       if (step > this.state.value) {
         this.sliderShift(step);
@@ -762,7 +794,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
   };
 
   private stepPrevChangepoint = () => {
-    const changeSteps = this.props.changepointSteps;
+    const changeSteps = this.getChangepointSteps();
     for (let i = changeSteps.length - 1; i >= 0; i--) {
       const step = changeSteps[i];
       if (step < this.state.value) {

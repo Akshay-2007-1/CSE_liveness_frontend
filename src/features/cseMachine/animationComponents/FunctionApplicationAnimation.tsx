@@ -59,13 +59,13 @@ export class FunctionApplicationAnimation extends Animatable {
       }),
     ];
     this.stashArrowAnimations = [
-      new AnimatedGenericArrow(closureStashItem.arrow!),
-      ...argStashItems.flatMap(item => (item.arrow ? new AnimatedGenericArrow(item.arrow) : [])),
+      ...(closureStashItem.arrow ? [new AnimatedGenericArrow(closureStashItem.arrow)] : []),
+      ...argStashItems.flatMap(item => (item.arrow ? [new AnimatedGenericArrow(item.arrow)] : [])),
     ];
     this.newControlItemAnimations = newControlItems.map(
       i => new AnimatedTextbox(i.text, { ...closureLocation, opacity: 0 }),
     );
-    if (this.newControlItems[0].arrow) {
+    if (this.newControlItems[0]?.arrow) {
       this.envArrowAnimation = new AnimatedGenericArrow(this.newControlItems[0].arrow, {
         opacity: 0,
       });
@@ -90,7 +90,7 @@ export class FunctionApplicationAnimation extends Animatable {
 
   async animate() {
     this.newControlItems.forEach(item => item.ref.current?.hide());
-    this.newControlItems[0].arrow?.ref.current?.hide();
+    this.newControlItems[0]?.arrow?.ref.current?.hide();
     // hide the function frame before the frame creation animation plays
     this.functionFrame?.ref.current?.hide();
 
@@ -107,8 +107,8 @@ export class FunctionApplicationAnimation extends Animatable {
       ...this.stashItemAnimations.map(a => a.animateRectTo({ stroke: defaultStrokeColor() })),
     ]);
     const targetLocation = {
-      x: this.functionFrame?.x() ?? this.newControlItems[0].x(),
-      y: this.functionFrame?.y() ?? this.newControlItems[0].y(),
+      x: this.functionFrame?.x() ?? this.newControlItems[0]?.x() ?? 0,
+      y: this.functionFrame?.y() ?? this.newControlItems[0]?.y() ?? 0,
     };
     const config = { duration: 1.2 };
     const fadeDuration = 9 / 8;
@@ -126,7 +126,7 @@ export class FunctionApplicationAnimation extends Animatable {
         a.animateTo(getNodePosition(this.newControlItems[i]), config),
         a.animateTo({ opacity: 1 }, { ...config, duration: fadeDuration, delay: fadeInDelay }),
       ]),
-      this.newControlItemAnimations.at(-1)!.animateRectTo({ stroke: defaultActiveColor() }, config),
+      this.newControlItemAnimations.at(-1)?.animateRectTo({ stroke: defaultActiveColor() }, config),
       this.frameCreationAnimation?.animate(config),
       this.envArrowAnimation?.animateTo({ opacity: 1 }, { delay: config.duration }),
     ]);
@@ -136,7 +136,7 @@ export class FunctionApplicationAnimation extends Animatable {
   destroy() {
     this.ref.current?.hide();
     this.newControlItems.forEach(item => item.ref.current?.show());
-    this.newControlItems[0].arrow?.ref.current?.show();
+    this.newControlItems[0]?.arrow?.ref.current?.show();
     this.functionFrame?.ref.current?.show();
     this.callInstrAnimation.destroy();
     this.stashItemAnimations.forEach(a => a.destroy());

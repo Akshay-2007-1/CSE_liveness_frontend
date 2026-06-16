@@ -10,7 +10,7 @@ import { InterruptedError } from 'js-slang/dist/errors/errors';
 import { Chapter, Variant } from 'js-slang/dist/langs';
 import { pick } from 'lodash-es';
 import { END, eventChannel, type SagaIterator } from 'redux-saga';
-import { call, cancel, cancelled, fork, put, race, select, take } from 'redux-saga/effects';
+import { call, cancel, cancelled, fork, put, race, select, spawn, take } from 'redux-saga/effects';
 import * as Sourceror from 'sourceror';
 
 import InterpreterActions from '../../../../commons/application/actions/InterpreterActions';
@@ -30,7 +30,7 @@ import { showWarningMessage } from '../../../utils/notifications/NotificationsHe
 import { makeExternalBuiltins as makeSourcerorExternalBuiltins } from '../../../utils/SourcerorHelper';
 import WorkspaceActions from '../../../workspace/WorkspaceActions';
 import { EVAL_SILENT, type WorkspaceLocation } from '../../../workspace/WorkspaceTypes';
-import { getPreparedConductorSaga } from '../../helpers/conductorEvaluatorCache';
+import { getPreparedConductorSaga, preloadConductorEvaluatorSaga } from '../../helpers/conductorEvaluatorCache';
 import { getEvaluatorDefinitionSaga } from '../../LanguageDirectorySaga';
 import { selectWorkspace } from '../../SafeEffects';
 import { dumpDisplayBuffer } from './dumpDisplayBuffer';
@@ -448,7 +448,7 @@ function* handleResults(
   hostPlugin: BrowserHostPlugin,
   workspaceLocation: WorkspaceLocation,
 ): SagaIterator {
-  const resultChan = eventChannel(emitter => {
+  const resultChan = eventChannel<{ value: any }>(emitter => {
     hostPlugin.receiveResult = emitter;
     return () => {
       if (hostPlugin.receiveResult === emitter) delete hostPlugin.receiveResult;
@@ -456,7 +456,7 @@ function* handleResults(
   });
   try {
     while (true) {
-      const result = yield take(resultChan);
+      const { value: result } = yield take(resultChan);
       yield put(actions.appendInterpreterResult(result, workspaceLocation));
     }
   } finally {
@@ -518,6 +518,7 @@ function* handleCseSnapshots(
 function* handleStatuses(
   hostPlugin: BrowserHostPlugin,
   workspaceLocation: WorkspaceLocation,
+  onTerminate: () => void,
 ): SagaIterator {
   const statusChan = eventChannel<{ status: RunnerStatus; isActive: boolean }>(emitter => {
     const onStatusUpdate = (status: RunnerStatus, isActive: boolean) =>
@@ -538,7 +539,7 @@ function* handleStatuses(
         isActive && (status === RunnerStatus.STOPPED || status === RunnerStatus.ERROR);
 
       if (isTerminalStatus) {
-        yield put(actions.beginInterruptExecution(workspaceLocation));
+        onTerminate();
       }
     }
   } finally {
@@ -576,43 +577,69 @@ export function* evalCodeConductorSaga(
   // Clear any stale CSE snapshots from the previous run
   yield put(WorkspaceActions.updateCseSnapshots(null, workspaceLocation));
 
+  // Inject step limit so the evaluator knows how many snapshots to collect.
+  const { stepLimit }: { stepLimit: number } = yield* selectWorkspace(workspaceLocation);
+  const filesWithConfig = {
+    ...files,
+    '/__cse_config__': JSON.stringify({ stepLimit }),
+  };
+
   // Reuse a preloaded conductor instance when available.
   const { hostPlugin, csePlugin, conduit }: { hostPlugin: BrowserHostPlugin; csePlugin: CseMachineHostPlugin; conduit: IConduit } = yield call(
     getPreparedConductorSaga,
-    { files, consume: true },
+    { files: filesWithConfig, consume: true },
   );
+
+  // Immediately start warming the next conductor in the background so consecutive runs are fast.
+  // spawn (detached) so cancellation of this saga (takeLatest) doesn't kill the preload.
+  yield spawn(preloadConductorEvaluatorSaga, evaluator.path);
+
+  // A one-shot channel that fires when the runner signals it has finished (STOPPED or ERROR status).
+  // Using a dedicated channel avoids the race where a pre-buffered beginInterruptExecution
+  // from evalEditorSaga is consumed before the runner has a chance to report its status.
+  let resolveTerminated!: () => void;
+  const terminatedChan = eventChannel<true>(emitter => {
+    // Defer by one microtask so the calling generator finishes its current synchronous step
+    // before the main saga reacts and cancels it. Without this, cancel() calls .return() on
+    // a still-executing generator which causes a "Generator is already running" JS error.
+    resolveTerminated = () => Promise.resolve().then(() => emitter(true));
+    return () => {};
+  });
 
   // Begin evaluation
   const stdoutTask = yield fork(handleStdout, hostPlugin, workspaceLocation);
   const resultTask = yield fork(handleResults, hostPlugin, workspaceLocation);
   const errorTask = yield fork(handleErrors, hostPlugin, workspaceLocation);
-  const statusTask = yield fork(handleStatuses, hostPlugin, workspaceLocation);
+  const statusTask = yield fork(handleStatuses, hostPlugin, workspaceLocation, resolveTerminated);
   const cseTask = yield fork(handleCseSnapshots, csePlugin, workspaceLocation);
-  yield call([hostPlugin, 'startEvaluator'], entrypointFilePath);
 
-  // This exit logic of this while loop might be causing an unintended infinite loop in the REPL
-  while (true) {
-    const { stop } = yield race({
-      repl: take(actions.evalRepl.type),
-      stop: take(actions.beginInterruptExecution.type),
-    });
-    if (stop) break;
-    const code: string = yield select(
-      (state: OverallState) => state.workspaces[workspaceLocation].replValue,
-    );
-    yield put(actions.sendReplInputToOutput(code, workspaceLocation));
-    yield put(actions.clearReplInput(workspaceLocation));
-    yield call([hostPlugin, 'sendChunk'], code);
+  try {
+    yield call([hostPlugin, 'startEvaluator'], entrypointFilePath);
+
+    while (true) {
+      const { stop } = yield race({
+        repl: take(actions.evalRepl.type),
+        stop: take(terminatedChan),
+      });
+      if (stop) break;
+      const code: string = yield select(
+        (state: OverallState) => state.workspaces[workspaceLocation].replValue,
+      );
+      yield put(actions.sendReplInputToOutput(code, workspaceLocation));
+      yield put(actions.clearReplInput(workspaceLocation));
+      yield call([hostPlugin, 'sendChunk'], code);
+    }
+  } finally {
+    yield cancel(statusTask);
+    yield cancel(cseTask);
+    yield call([conduit, 'terminate']);
+    yield cancel(stdoutTask);
+    yield cancel(resultTask);
+    yield cancel(errorTask);
+    yield put(actions.endInterruptExecution(workspaceLocation));
+    yield put(actions.setIsRunning(false, workspaceLocation));
+    console.log('[conductor] saga terminated');
   }
-  yield cancel(statusTask);
-  yield cancel(cseTask);
-  yield call([conduit, 'terminate']);
-  yield cancel(stdoutTask);
-  yield cancel(resultTask);
-  yield cancel(errorTask);
-  //yield put(actions.debuggerReset(workspaceLocation));
-  yield put(actions.endInterruptExecution(workspaceLocation));
-  console.log('killed');
 }
 
 // Special module errors

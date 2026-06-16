@@ -407,7 +407,12 @@ const EditorBase = memo((props: EditorProps & LocalStateProps) => {
       controlMarkerIdRef.current = null;
     }
 
-    if (controlLines.length > 0) {
+    // Guard against invalid/negative rows: Ace clamps a negative startRow to 0 and
+    // paints a stuck full-line highlight on line 1. Treat such segments as "no highlight".
+    const isValidSegment = (seg?: [number, number]) =>
+      Array.isArray(seg) && seg[0] >= 0 && seg[1] >= 0;
+
+    if (isValidSegment(controlLines[0])) {
       // Hover highlight (green) — overrides step highlight.
       const [startRow, endRow] = controlLines[0];
       controlMarkerIdRef.current = session.addMarker(
@@ -416,7 +421,7 @@ const EditorBase = memo((props: EditorProps & LocalStateProps) => {
         'fullLine',
         false,
       );
-    } else if (stepLines.length > 0) {
+    } else if (isValidSegment(stepLines[0])) {
       // Step highlight (blue).
       const [startRow, endRow] = stepLines[0];
       stepMarkerIdRef.current = session.addMarker(

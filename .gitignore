@@ -55,3 +55,10 @@ yarn-error.log
 AGENTS.md
 CLAUDE.md
 pr_description.md
+
+# CSE machine / conductor evaluator bundles — build artifacts (built from py-slang / js-slang),
+# deployed locally into public/evaluators; should not be committed/pushed.
+/public/evaluators/PyCseEvaluator*.js
+/public/evaluators/PyCseEvaluator*.cjs
+/public/evaluators/JSCseEvaluator*.js
+/public/evaluators/SourceEvaluator*.js

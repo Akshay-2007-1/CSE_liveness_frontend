@@ -24,8 +24,8 @@
         }
       }
 
-      gutterCells[number].classList.add('ace_gutter-cell_hi');
-      aceLines[number].classList.add('ace_line_hi');
+      if (gutterCells[number]) gutterCells[number].classList.add('ace_gutter-cell_hi');
+      if (aceLines[number]) aceLines[number].classList.add('ace_line_hi');
     }
   }
 
@@ -61,8 +61,8 @@
         }
       }
 
-      gutterCells[number].classList.add('ace_gutter-cell_hi_control');
-      aceLines[number].classList.add('ace_line_hi_control');
+      if (gutterCells[number]) gutterCells[number].classList.add('ace_gutter-cell_hi_control');
+      if (aceLines[number]) aceLines[number].classList.add('ace_line_hi_control');
     }
   }
 

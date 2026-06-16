@@ -62,6 +62,8 @@ export default class CseMachine {
   private static currentEnvId: string;
   private static control: Control | undefined;
   private static stash: Stash | undefined;
+  /** Last snapshot passed to renderSnapshot(); used by redraw() in snapshot mode. */
+  private static lastSnapshot: CseSnapshot | null = null;
   private static streamLineage: Map<string, string[]> = new Map();
   public static togglePrintableMode(): void {
     CseMachine.printableMode = !CseMachine.printableMode;
@@ -408,6 +410,9 @@ export default class CseMachine {
   static renderSnapshot(snapshot: CseSnapshot): void {
     if (!this.setVis) throw new Error('CSE machine not initialized');
 
+    // Save for redraw() so the snapshot path works after clearDeadFrames animation.
+    CseMachine.lastSnapshot = snapshot;
+
     // Set currentEnvId so computeLiveState() marks the active frame as live.
     const activeEnv = snapshot.environments.find(env => env.isActive);
     if (activeEnv) CseMachine.currentEnvId = activeEnv.id;
@@ -426,6 +431,12 @@ export default class CseMachine {
   }
 
   static redraw() {
+    // In snapshot mode environmentTree/control/stash are not set; re-render from the
+    // last snapshot instead (preserving clearDeadFrames and other toggles).
+    if (!CseMachine.environmentTree && CseMachine.lastSnapshot) {
+      CseMachine.renderSnapshot(CseMachine.lastSnapshot);
+      return;
+    }
     if (CseMachine.environmentTree && CseMachine.control && CseMachine.stash) {
       // checks if the required diagram exists, and updates the dom node using setVis
 
@@ -526,6 +537,7 @@ export default class CseMachine {
       CseMachine.environmentTree = undefined;
       CseMachine.control = undefined;
       CseMachine.stash = undefined;
+      CseMachine.lastSnapshot = null;
     }
     CseMachine.setClearDeadFrames(false);
     this.clear();
