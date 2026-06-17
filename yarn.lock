@@ -3155,6 +3155,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@sourceacademy/common-cse-machine@portal:../plugins/src/common/cse-machine::locator=frontend%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@sourceacademy/common-cse-machine@portal:../plugins/src/common/cse-machine::locator=frontend%40workspace%3A."
+  languageName: node
+  linkType: soft
+
 "@sourceacademy/conductor@https://github.com/source-academy/conductor.git#0.4.0":
   version: 0.4.0
   resolution: "@sourceacademy/conductor@https://github.com/source-academy/conductor.git#commit=00a0d5fdce269d62a0feb33230300db27121be05"
@@ -3197,6 +3203,14 @@ __metadata:
   checksum: 10c0/d7cb2ce7136811c5eb185d013fe2d62c22bc4bcb50952621f734d816b0a428e1a09d22c284bcc564025e2adb4aad5f85a0ad9a12f633d0c8a264deb22b577d4c
   languageName: node
   linkType: hard
+
+"@sourceacademy/web-cse-machine@portal:../plugins/src/web/cse-machine::locator=frontend%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@sourceacademy/web-cse-machine@portal:../plugins/src/web/cse-machine::locator=frontend%40workspace%3A."
+  peerDependencies:
+    "@sourceacademy/conductor": ">=0.3.0"
+  languageName: node
+  linkType: soft
 
 "@standard-schema/spec@npm:^1.1.0":
   version: 1.1.0
@@ -7218,11 +7232,13 @@ __metadata:
     "@sentry/react": "npm:^10.5.0"
     "@sourceacademy/autocomplete": "github:source-academy/autocomplete#e669d9ed98753350a3c8433a92985227eb789663"
     "@sourceacademy/c-slang": "npm:^1.0.21"
+    "@sourceacademy/common-cse-machine": "portal:../plugins/src/common/cse-machine"
     "@sourceacademy/conductor": "https://github.com/source-academy/conductor.git#0.4.0"
     "@sourceacademy/language-directory": "https://github.com/source-academy/language-directory.git#0.0.6"
     "@sourceacademy/plugin-directory": "https://github.com/source-academy/plugin-directory.git#0.0.2"
     "@sourceacademy/sharedb-ace": "npm:2.1.1"
     "@sourceacademy/sling-client": "npm:^0.1.0"
+    "@sourceacademy/web-cse-machine": "portal:../plugins/src/web/cse-machine"
     "@svgr/webpack": "npm:^8.0.0"
     "@swc/core": "npm:^1.11.22"
     "@szhsin/react-menu": "npm:^4.0.0"
