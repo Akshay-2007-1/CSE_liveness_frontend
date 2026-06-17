@@ -646,7 +646,7 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     // BFS already encodes the liveness condition: it only emits frames that are on
     // the call stack OR reachable from a live frame via closures. So anything in
     // accumulatedFrames but not here is dead (not in Env[] AND not closure-reachable).
-    const liveIds = new Set(snapshot.environments.map(f => f.id));
+    const liveIds = new Set(snapshot.environments.map((f: CseSerializedEnvFrame) => f.id));
     const deadFrames = [...this.accumulatedFrames.values()]
       .filter(f => !liveIds.has(f.id))
       .map(f => ({ ...f, isActive: false, isOnCallStack: false }));

@@ -392,6 +392,7 @@ export const createDefaultWorkspace = (workspaceLocation: WorkspaceLocation): Wo
     isAutoSaving: false,
   },
   saveStatus: 'idle',
+  cseSnapshots: null,
 });
 
 const defaultFileName = 'program.js';

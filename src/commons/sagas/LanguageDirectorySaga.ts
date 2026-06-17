@@ -8,6 +8,7 @@ import LanguageDirectoryActions from '../../features/directory/LanguageDirectory
 import type { LanguageDirectoryState } from '../../features/directory/LanguageDirectoryTypes';
 import type { OverallState } from '../application/ApplicationTypes';
 import { combineSagaHandlers } from '../redux/utils';
+import WorkspaceActions from '../workspace/WorkspaceActions';
 import { preloadConductorEvaluatorSaga } from './helpers/conductorEvaluatorCache';
 
 export function* getLanguageDefinitionSaga() {
@@ -50,6 +51,9 @@ const languageDirectoryHandlers = combineSagaHandlers({
     if (language.evaluators.length > 0) {
       yield put(LanguageDirectoryActions.setSelectedEvaluator(language.evaluators[0].id));
     }
+
+    // Clear stale CSE snapshots so the tab doesn't show for languages/chapters that don't support it
+    yield put(WorkspaceActions.updateCseSnapshots(null, 'playground'));
 
     const conductorEnabled: boolean = yield select(selectConductorEnable);
     if (!conductorEnabled) return;

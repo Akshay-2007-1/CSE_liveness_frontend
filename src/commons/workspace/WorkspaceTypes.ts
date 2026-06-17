@@ -69,7 +69,6 @@ type PlaygroundWorkspaceAttr = {
   readonly stepsTotal: number;
   readonly breakpointSteps: number[];
   readonly changepointSteps: number[];
-  readonly cseSnapshots: any[] | null;
 };
 export type PlaygroundWorkspaceState = PlaygroundWorkspaceAttr & WorkspaceState;
 
@@ -123,6 +122,7 @@ export type WorkspaceState = {
   readonly updateUserRoleCallback: (id: string, newRole: CollabEditingAccess) => void;
   readonly versionHistory: VersionHistoryState;
   readonly saveStatus: SaveStatus;
+  readonly cseSnapshots: any[] | null;
 };
 
 type ReplHistory = {

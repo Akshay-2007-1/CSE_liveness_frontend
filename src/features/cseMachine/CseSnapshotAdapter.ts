@@ -17,7 +17,7 @@ import type { Control, Stash } from 'js-slang/dist/cse-machine/interpreter';
 import { InstrType } from 'js-slang/dist/cse-machine/types';
 import type { Environment } from 'js-slang/dist/types';
 
-import type { CseSerializedValue, CseSnapshot } from '../conductor/CseMachineHostPlugin';
+import type { CseSerializedEnvFrame, CseSerializedValue, CseSnapshot } from '../conductor/CseMachineHostPlugin';
 import { Config } from './CseMachineConfig';
 
 // Global counter so every fake closure gets a unique id regardless of which env it was defined in.
@@ -174,8 +174,8 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
   // built-in functions) and Source CSE Machine also hides it (via removePreludeEnv).
   // Instead we reparent any child of prelude directly to global, matching Source's behaviour.
   const rawFrames = snapshot.environments;
-  const globalFrame = rawFrames.find(f => f.name === 'global' && f.parentId === null);
-  const preludeFrame = rawFrames.find(f => f.name === 'prelude' && f.parentId === null);
+  const globalFrame = rawFrames.find((f: CseSerializedEnvFrame) => f.name === 'global' && f.parentId === null);
+  const preludeFrame = rawFrames.find((f: CseSerializedEnvFrame) => f.name === 'prelude' && f.parentId === null);
   const frames = (() => {
     if (!globalFrame) return rawFrames;
     if (!preludeFrame) {
@@ -183,13 +183,13 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
       // is ever pushed onto the call stack). Any orphaned top-level frame — i.e. a frame other
       // than global that also has parentId=null because its tail was undefined — must be
       // reparented to global so EnvTree.insert doesn't silently drop it.
-      return rawFrames.map(f =>
+      return rawFrames.map((f: CseSerializedEnvFrame) =>
         f !== globalFrame && f.parentId === null ? { ...f, parentId: globalFrame.id } : f,
       );
     }
     return rawFrames
-      .filter(f => f !== preludeFrame)
-      .map(f =>
+      .filter((f: CseSerializedEnvFrame) => f !== preludeFrame)
+      .map((f: CseSerializedEnvFrame) =>
         f.parentId === preludeFrame.id ? { ...f, parentId: globalFrame.id } : f,
       );
   })();
@@ -286,18 +286,18 @@ export function buildFakeEnvTreeFromSnapshot(snapshot: CseSnapshot): SnapshotAda
   // EnvTree.insert() uses object identity as the map key, so we must insert
   // environments in parent-before-child order.
   const envTree = new EnvTree();
-  const rootFrames = frames.filter(f => !f.parentId);
+  const rootFrames = frames.filter((f: CseSerializedEnvFrame) => !f.parentId);
   for (const f of rootFrames) {
     envTree.insert(envMap.get(f.id)!);
   }
 
-  const inserted = new Set(rootFrames.map(f => f.id));
-  const queue = frames.filter(f => f.parentId).map(f => f.id);
+  const inserted = new Set(rootFrames.map((f: CseSerializedEnvFrame) => f.id));
+  const queue = frames.filter((f: CseSerializedEnvFrame) => f.parentId).map((f: CseSerializedEnvFrame) => f.id);
   let qi = 0;
   let guard = frames.length * 2;
   while (qi < queue.length && guard-- > 0) {
     const id = queue[qi++];
-    const frame = frames.find(f => f.id === id)!;
+    const frame = frames.find((f: CseSerializedEnvFrame) => f.id === id)!;
     if (frame.parentId && inserted.has(frame.parentId)) {
       envTree.insert(envMap.get(id)!);
       inserted.add(id);

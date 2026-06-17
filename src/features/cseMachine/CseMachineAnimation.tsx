@@ -133,9 +133,10 @@ export class CseAnimation {
           new ControlToStashAnimation(lastControlComponent, currStashComponent!),
         );
         break;
-      case 'Identifier':
+      case 'Identifier': {
+        const identNode = node as any;
         // Special case for 'undefined' identifier
-        if (node.name === 'undefined') {
+        if (identNode.name === 'undefined') {
           CseAnimation.animations.push(
             new ControlToStashAnimation(lastControlComponent, currStashComponent!),
           );
@@ -146,7 +147,7 @@ export class CseAnimation {
           // every step that evaluates a literal-like value traces through the global frame.
           const currentEnvId = CseAnimation.currentFrame?.environment?.id;
           if (currentEnvId && currentEnvId !== '-1') {
-            const [foundFrame, foundBinding] = lookupBinding(CseAnimation.currentFrame, node.name);
+            const [foundFrame, foundBinding] = lookupBinding(CseAnimation.currentFrame, identNode.name);
             if (foundFrame?.environment?.id !== '-1') {
               CseAnimation.animations.push(
                 new LookupAnimation(lastControlComponent, currStashComponent!, foundFrame, foundBinding),
@@ -163,6 +164,7 @@ export class CseAnimation {
           }
         }
         break;
+      }
       case 'SpreadElement':
         CseAnimation.animations.push(
           new ControlExpansionAnimation(lastControlComponent, CseAnimation.getNewControlItems()),
@@ -186,7 +188,7 @@ export class CseAnimation {
         );
         break;
       case 'ExpressionStatement':
-        CseAnimation.handleNode(node.expression);
+        CseAnimation.handleNode((node as any).expression);
         break;
     }
   }

@@ -82,6 +82,7 @@ import { generateLanguageIntroduction } from '../../commons/utils/IntroductionHe
 import { convertParamToBoolean, convertParamToInt } from '../../commons/utils/ParamParseHelper';
 import { type IParsedQuery, parseQuery } from '../../commons/utils/QueryHelper';
 import Workspace, { type WorkspaceProps } from '../../commons/workspace/Workspace';
+import { selectConductorEnable } from '../../features/conductor/flagConductorEnable';
 import { initSession, log } from '../../features/eventLogging';
 import type {
   CodeDelta,
@@ -727,7 +728,14 @@ function Playground(props: PlaygroundProps) {
   const hasCseSnapshots = useTypedSelector(
     state => state.workspaces[workspaceLocation].cseSnapshots !== null,
   );
-  const shouldShowCseMachine = languageConfig.supports.cseMachine || hasCseSnapshots;
+  const conductorLanguageActive = useTypedSelector(
+    state => selectConductorEnable(state) && !!state.languageDirectory.selectedLanguageId,
+  );
+  // When a conductor language is active, the Source-based languageConfig doesn't reflect the
+  // selected language — rely solely on whether snapshots actually arrived.
+  const shouldShowCseMachine = conductorLanguageActive
+    ? hasCseSnapshots
+    : languageConfig.supports.cseMachine || hasCseSnapshots;
   const shouldShowSubstVisualizer = languageConfig.supports.substVisualizer;
 
   const playgroundIntroductionTab: SideContentTab = useMemo(

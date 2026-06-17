@@ -2,7 +2,7 @@ import type { Context } from 'js-slang';
 import { Control, Stash } from 'js-slang/dist/cse-machine/interpreter';
 import { parse } from 'js-slang/dist/parser/parser';
 
-import type { CseSnapshot } from '../conductor/CseMachineHostPlugin';
+import type { CseSerializedEnvFrame, CseSnapshot } from '../conductor/CseMachineHostPlugin';
 import { arrowSelection } from './components/arrows/ArrowSelection';
 import { CseAnimation } from './CseMachineAnimation';
 import { Layout, type LayoutCache } from './CseMachineLayout';
@@ -414,7 +414,7 @@ export default class CseMachine {
     CseMachine.lastSnapshot = snapshot;
 
     // Set currentEnvId so computeLiveState() marks the active frame as live.
-    const activeEnv = snapshot.environments.find(env => env.isActive);
+    const activeEnv = snapshot.environments.find((env: CseSerializedEnvFrame) => env.isActive);
     if (activeEnv) CseMachine.currentEnvId = activeEnv.id;
 
     const { envTree, fakeControl, fakeStash } = buildFakeEnvTreeFromSnapshot(snapshot);
