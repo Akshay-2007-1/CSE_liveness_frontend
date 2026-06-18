@@ -4,9 +4,20 @@
  * The plugin class and the language-agnostic snapshot protocol types now live in the shared
  * `@sourceacademy/web-cse-machine` package (backed by `@sourceacademy/common-cse-machine`).
  * This file is kept so existing intra-frontend imports of `../conductor/CseMachineHostPlugin`
- * continue to resolve; it adds no definitions of its own.
+ * continue to resolve.
+ *
+ * `CseMachineHostPlugin` is abstract in the package; this shim provides a concrete subclass
+ * with a reassignable `receiveSnapshots` so callers can wire in a callback after construction.
  */
-export { CseMachineHostPlugin } from '@sourceacademy/web-cse-machine';
+import {
+  CseMachineHostPlugin as _CseMachineHostPluginBase,
+  type CseSnapshot,
+} from '@sourceacademy/web-cse-machine';
+
+export class CseMachineHostPlugin extends _CseMachineHostPluginBase {
+  receiveSnapshots: (snapshots: CseSnapshot[]) => void = () => {};
+}
+
 export type {
   CseSnapshot,
   CseSerializedValue,

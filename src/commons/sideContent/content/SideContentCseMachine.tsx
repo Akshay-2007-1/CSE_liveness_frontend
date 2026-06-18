@@ -212,12 +212,15 @@ class SideContentCseMachineBase extends Component<CseMachineProps, State> {
     this.handleResize();
     window.addEventListener('resize', this.handleResize);
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
-    if (this.props.cseSnapshots) {
-      // Python snapshot mode: component may mount after snapshots already arrived
-      // (the needCseUpdate true→false transition was missed), so render step 0 now.
-      this.renderSnapshotAt(0);
-    } else {
-      CseMachine.redraw();
+    if (!this.isJava()) {
+      // Java uses JavaCseMachine (initialized separately in the constructor); calling
+      // CseMachine methods here when isJava() is true would crash if setVis is null.
+      if (this.props.cseSnapshots) {
+        // Snapshot mode: component may mount after snapshots already arrived, so render step 0 now.
+        this.renderSnapshotAt(0);
+      } else {
+        CseMachine.redraw();
+      }
     }
   }
 

@@ -495,7 +495,7 @@ function* handleCseSnapshots(
   const snapshotChan = eventChannel<CseSnapshot[]>(emitter => {
     csePlugin.receiveSnapshots = emitter;
     return () => {
-      if (csePlugin.receiveSnapshots === emitter) delete csePlugin.receiveSnapshots;
+      if (csePlugin.receiveSnapshots === emitter) csePlugin.receiveSnapshots = () => {};
     };
   });
   try {
