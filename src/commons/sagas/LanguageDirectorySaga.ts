@@ -1,5 +1,6 @@
 import type { ILanguageDefinition } from '@sourceacademy/language-directory/dist/types';
 import { getEvaluatorDefinition } from '@sourceacademy/language-directory/dist/util';
+import { Chapter, Variant } from 'js-slang/dist/langs';
 import { call, fork, put, select } from 'redux-saga/effects';
 import { selectConductorEnable } from 'src/features/conductor/flagConductorEnable';
 import { selectDirectoryLanguageUrl } from 'src/features/directory/flagDirectoryLanguageUrl';
@@ -54,6 +55,15 @@ const languageDirectoryHandlers = combineSagaHandlers({
 
     // Clear stale CSE snapshots so the tab doesn't show for languages/chapters that don't support it
     yield put(WorkspaceActions.updateCseSnapshots(null, 'playground'));
+
+    // If the workspace chapter is FULL_JAVA, reset it to Source 4 so that conductor languages
+    // (e.g. Python) don't accidentally run in Java mode — isJava() checks this chapter.
+    const currentChapter: Chapter = yield select(
+      (state: OverallState) => state.workspaces.playground.context.chapter,
+    );
+    if (currentChapter === Chapter.FULL_JAVA) {
+      yield put(WorkspaceActions.chapterSelect(Chapter.SOURCE_4, Variant.DEFAULT, 'playground'));
+    }
 
     const conductorEnabled: boolean = yield select(selectConductorEnable);
     if (!conductorEnabled) return;
